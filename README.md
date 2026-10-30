@@ -1,6 +1,8 @@
+<p align="center"><a href="https://llmule.xyz"><img src="assets/llmule-wordmark.png" alt="LLMule" width="460"></a></p>
+
 # LLMule provider
 
-**Share your GPU on [LLMule](https://llmule.xyz), the parallel network of LLMs.** People with a GPU share the
+**Share your GPU on [LLMule](https://llmule.xyz), the underground P2P network of LLMs.** People with a GPU share the
 models running on their own machines; people without one use them for free through an OpenAI-compatible API.
 
 This is the script that does the sharing: one file, Node 18+, no dependencies. Read it before you run it.
