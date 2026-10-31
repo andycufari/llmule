@@ -118,11 +118,12 @@ async function upstreamList() {
   }
 }
 
-async function mule(path, body) {
+async function mule(path, body, timeoutMs) {
   const res = await fetch(`${API}${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${KEY}` },
     body: JSON.stringify(body),
+    ...(timeoutMs && { signal: AbortSignal.timeout(timeoutMs) }),
   });
   const text = await res.text();
   let data;
@@ -174,11 +175,29 @@ async function run(job, models) {
   }
 }
 
+// Stopping (systemctl stop, docker restart, Ctrl+C): tell the network before leaving. Our last long poll is
+// still open on the server and would otherwise take the next job for a process that no longer exists
+// (the consumer got a 504 after 50s). The server stops offering us jobs and re-queues one we held.
+let leaving = false;
+async function goodbye(signal) {
+  if (leaving) return;
+  leaving = true;
+  log(`${signal} — leaving the network`);
+  try {
+    await mule('/api/muleProviderPoll', { instance: INSTANCE, bye: true }, 3000);
+  } catch (e) {
+    log(`could not say goodbye: ${e.message}`);
+  }
+  process.exit(0);
+}
+
 async function main() {
   if (!KEY) {
     console.error('No LLMule key. Run: node mule-provider.mjs setup');
     process.exit(1);
   }
+  process.on('SIGTERM', () => goodbye('SIGTERM'));
+  process.on('SIGINT', () => goodbye('SIGINT'));
   let models = await resolveModels();
   log(`sharing ${FOLLOW ? `whatever "${FOLLOW}" runs` : Object.keys(models).join(', ')} from ${UPSTREAM} as "${NAME}" → ${API}`);
   let backoff = 1000;
