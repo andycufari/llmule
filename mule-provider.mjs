@@ -154,6 +154,7 @@ async function run(job, models) {
   const t = Date.now();
   try {
     const body = buildBody(job.request, models);
+    log(`job ${job.id} started ${job.request.model}`);
     const res = await fetch(`${UPSTREAM}/chat/completions`, {
       method: 'POST',
       headers: upstreamHeaders,
@@ -196,8 +197,16 @@ async function main() {
     console.error('No LLMule key. Run: node mule-provider.mjs setup');
     process.exit(1);
   }
-  process.on('SIGTERM', () => goodbye('SIGTERM'));
-  process.on('SIGINT', () => goodbye('SIGINT'));
+  // Deno on Windows throws on SIGTERM listeners (Windows has no SIGTERM)
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    try { process.on(sig, () => goodbye(sig)); } catch { /* not on this OS */ }
+  }
+  // A parent process (the LLMule app) can't send a catchable signal on Windows: it writes "bye" to our stdin
+  if (process.env.LLMULE_STDIN_BYE) {
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (d) => { if (String(d).includes('bye')) goodbye('stdin bye'); });
+    process.stdin.on('end', () => goodbye('stdin closed'));
+  }
   let models = await resolveModels();
   log(`sharing ${FOLLOW ? `whatever "${FOLLOW}" runs` : Object.keys(models).join(', ')} from ${UPSTREAM} as "${NAME}" → ${API}`);
   let backoff = 1000;
@@ -378,11 +387,27 @@ async function setup() {
   const go = (await ask('     Start sharing now? (Y/n)', 'y')).toLowerCase();
   rl.close();
   if (go.startsWith('n')) {
-    console.log(`     Later: node ${path.basename(process.argv[1])}\n`);
+    console.log(`     Later: ${laterCommand()}\n`);
     return;
   }
   // Fresh process so it reads the saved config
-  spawn(process.execPath, [process.argv[1]], { stdio: 'inherit' }).on('exit', (code) => process.exit(code ?? 0));
+  spawn(process.execPath, relaunchArgs(), { stdio: 'inherit' }).on('exit', (code) => process.exit(code ?? 0));
+}
+
+// What to type to share later: `node mule-provider.mjs`, or the compiled binary itself
+export function laterCommand(argv = process.argv, execPath = process.execPath) {
+  const script = argv[1];
+  if (script && script !== execPath && /\.m?js$/.test(script)) return `node ${path.basename(script)}`;
+  return [path.basename(execPath), ...argv.slice(2).filter((a) => a !== 'setup')].join(' ');
+}
+
+// The args to run this again without "setup": `node mule-provider.mjs`, `deno run`, or embedded in a
+// compiled binary (there argv[1] is the binary itself, and args like `llmule __provider` must stay)
+export function relaunchArgs(argv = process.argv, execPath = process.execPath, deno = !!globalThis.Deno) {
+  const rest = argv.slice(2).filter((a) => a !== 'setup');
+  const script = argv[1];
+  if (!script || script === execPath) return rest;
+  return deno ? ['run', '-A', script, ...rest] : [script, ...rest];
 }
 
 // The test imports buildBody with LLMULE_NO_MAIN=1: don't start polling

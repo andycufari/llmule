@@ -9,7 +9,17 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT = fileURLToPath(new URL('./mule-provider.mjs', import.meta.url));
 
 process.env.LLMULE_NO_MAIN = '1';
-const { buildBody, upstreamServes, pickIndexes, publicName, followModels } = await import('./mule-provider.mjs');
+const { buildBody, upstreamServes, pickIndexes, publicName, followModels, relaunchArgs, laterCommand } = await import('./mule-provider.mjs');
+
+// The "Later:" hint after setup names what to run: the script, or the binary (never "node llmule")
+assert.equal(laterCommand(['/bin/node', '/x/mule-provider.mjs', 'setup'], '/bin/node'), 'node mule-provider.mjs');
+assert.equal(laterCommand(['/opt/llmule', '/opt/llmule', '__provider', 'setup'], '/opt/llmule'), 'llmule __provider');
+
+// After setup it starts itself again: as a script, under deno, or inside a compiled binary
+assert.deepEqual(relaunchArgs(['/bin/node', '/x/mule-provider.mjs', 'setup'], '/bin/node', false), ['/x/mule-provider.mjs']);
+assert.deepEqual(relaunchArgs(['/bin/node', '/x/llmule.mjs', '__provider'], '/bin/node', false), ['/x/llmule.mjs', '__provider']);
+assert.deepEqual(relaunchArgs(['/bin/deno', '/x/mule-provider.mjs', 'setup'], '/bin/deno', true), ['run', '-A', '/x/mule-provider.mjs']);
+assert.deepEqual(relaunchArgs(['/opt/llmule', '/opt/llmule', '__provider'], '/opt/llmule', true), ['__provider']);
 
 const models = { 'qwen3.8-27b': 'local-brain' };
 const msg = [{ role: 'user', content: 'hola' }];
